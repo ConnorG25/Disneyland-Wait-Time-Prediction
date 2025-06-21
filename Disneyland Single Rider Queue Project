@@ -1,0 +1,648 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "51d99f50-9480-4927-967d-9162295b5c3b",
+   "metadata": {},
+   "source": [
+    "## Project Objective\n",
+    "\n",
+    "In this project, I examine the single rider line at Tiana's Bayou Adventure (fomerly known as Splash Mountain) at Disneyland in Anaheim, California. I create a model to estimate the waiting time in the single rider line for any given queue length (number of guests in the queue). \n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "d92dd5a3-569f-4e38-9b35-c8389ba244cc",
+   "metadata": {},
+   "source": [
+    "## Queues Types at Disneyland\n",
+    "\n",
+    "Attractions at Disneyland frequently have multiple queues that guests may enter to wait for their turn to ride an attraction. These include a standby line, a lightning lane, and a single rider line.\n",
+    "\n",
+    "### Standby line\n",
+    "* Open to anyone who has been admitted to the park.\n",
+    "* Generally the longest wait out of the three lines.\n",
+    "* Parties that enter the line together are usually able to ride the attraction seated together.\n",
+    "\n",
+    "### Lighting lane\n",
+    "* Requires guests to make a reservation.\n",
+    "* Guests pay a fee for the ability to make reservations using the Disnetland mobile app.\n",
+    "\n",
+    "### Single Rider Line\n",
+    "* Does not require a reservation.\n",
+    "* Each guest in the line is treated as a single party.\n",
+    "* Parties that enter the line together are usually not able ride the attraction seated together.\n",
+    "* The purpose of this line is to fill empty seats that cannot be filled by the stanby line or lighting lane due to the size of the parties not fitting in the remaining seats.\n",
+    "* Often a much shorter wait than the standby line.\n",
+    "\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "ae513686-779b-4f34-a1ad-cafa38fd319c",
+   "metadata": {},
+   "source": [
+    "## Motivation\n",
+    "\n",
+    "Disneyland guests can access estimated wait times in real time for almost every attraction using the Dinsleyland mobile app. However, the app only displays the waiting time for the standby line and lightning lane but not the single rider line.\n",
+    "\n",
+    "While waiting in the single rider line at Tiana's Bayou Adventure, I observed that the wait time is dependent on the liklihood that a space for a guest in the single rider line will become available. At this attaction, each log (vehicle that guests sit in) seats up to 6 people. The Disneyland cast members responsible for directing guests to seats primarily use the standby line and lightning lane to fill these seats. Guests in the single rider line are only able to board a log when there are open seat remaining. For example, if there is a party of 2 followed by a party of 3, there will be one seat remaining in the log. The cast member will direct a guest in the single rider line to fill this seat. On the contary, if there is a party of 2 followed by a party of 4, there will not be seats remaining and the guest next in line in the single rider queue will not be able to board.\n",
+    "\n",
+    "Another factor that I oberved is that cast members do not immediately resort to the single rider line to fill open seats if the next party in the standby line or lightning lane does not fit into the remaining seats. Instead, they search several postions back in the line for a party that will fit.  For example, if there are three seats remaining, they search for a party of three in the standby line or lightning line by calling out \"party of three\" and waiting briefly for a party to respond and come forward. If there are no responses, only then are the remaining seats able to be boarded by guests in the single rider line. \n",
+    "\n",
+    "Excited by a challenge, I wanted to model this dynamic and test whether I can create accurate estimates on the waiting times in the single rider queue at Tiana's Bayou Adventure that can be generalized for other Disneyland attractions."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "d22dbdef-672e-473f-a630-326f7e36e114",
+   "metadata": {},
+   "source": [
+    "## Assumptions\n",
+    "\n",
+    "### Party Sizes\n",
+    "* Party sizes in the standby line can be any integer between 1 and 6.\n",
+    "* While it is possible that parties large than 6 will enter the line, I treat these as seperate parties that can broken up into parties smaller than 6.\n",
+    "\n",
+    "### Party Size Probability\n",
+    "* For the wait time to be accurate, I need accurate measurements of the probabilties for each party size in the standby line.\n",
+    "* This data can be obtained from sampling party sizes that enter the standby line. However, I have not returned to the park since starting this project and have not yet attempted to collect this data. For now, I estimate the probability of various party sizes in the standby line.\n",
+    "* Observe below that a party of 1 is unlikely since any party of 1 can acheive a shorter wait time if they enter the single rider line without bearing the drawback of not riding with the rest of their party. Parties of 2 are very common since it is ideal for couples or friends. Parties of 3 and 4 are extremely frequent for families with one or two kids. Parties of 5 and 6 are less common but still occur.\n",
+    "\n",
+    "### Call Out Policy\n",
+    "\n",
+    "* I refer to policy of calling out for a certain size party to fill remaining seats as the \"call out policy.\" The maxiumum number of parties that can hear the call out and feasibly reach the front of the line will represented by the variable called \"policy.\" For this project, I set this number at 5. This can be easily adjusted as needed.\n",
+    "\n",
+    "### Ride Capacity\n",
+    "\n",
+    "* The ride capacity for Tiana's Bayou Adventure is 6. This can be adjusted to match other attractions..\r\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "id": "1c4a7fc4-ff88-49c1-9344-f4b6637f3be6",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import numpy as np\n",
+    "import pandas as pd\n",
+    "\n",
+    "party_sizes = [1, 2, 3, 4, 5, 6]\n",
+    "probabilties = [0.01, 0.24, 0.25, 0.3, 0.1, 0.1]\n",
+    "data = pd.DataFrame({ \"Party Size\": party_sizes, \"Probability\": probabilties })\n",
+    "data\n",
+    "\n",
+    "policy = 5 #The maxiumum number of parties that can hear the call out and feasibly reach the front of the line\n",
+    "ride_capacity = 6 #The ride capacity for Tiana's Bayou Adventure is 6. This can be adjusted to match other attractions."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "b698ad61-c914-47f3-a4d1-f557c9de82b2",
+   "metadata": {},
+   "source": [
+    "## Random Number Generation \n",
+    "\n",
+    "The partysize() function generates a single random number between 1 and 6 based on the given probabilties above."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "id": "0c9e1fe0-ebbe-4dbc-b96a-f09defa3c94c",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def partysize():\n",
+    "    partysize = np.random.choice(data['Party Size'], p=data['Probability'])\n",
+    "    return partysize"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "7306aa9b-acda-4736-9a93-33317d797452",
+   "metadata": {},
+   "source": [
+    "## Fill Ride Function\n",
+    "\n",
+    "The fill_ride() function: \n",
+    "1. Intializes the number of open seats in the ride as the maximum capacity the ride holds.\n",
+    "2. Creates a list of random numbers using the partysize() function where the lenth is the value given as the call-out policy.\n",
+    "3. The for loop looks at the next party in line and assigns them a seat. The loop then looks at the second party line and assigns them a seat if they fit. This continues up to the call-out policy amount. If there are no open seats remaining, the loop breaks instead of checking if the next parties can fit in the ride. This saves compute time since this function will be run a large number of times.\n",
+    "4. The function returns the amount of open seats remaining after the maximum number of parties allowed in the call out policy have been seated or attempted to be seated. The value returned is the number of open seats that will be filled by guests from the single rider queue."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "id": "ed9c8923-6caa-4547-9e39-b614f555d74f",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def fill_ride():\n",
+    "    open_seats = ride_capacity\n",
+    "    next_parties = [partysize() for i in range(policy)]\n",
+    "    \n",
+    "    for i in range(policy):\n",
+    "        if open_seats == 0:\n",
+    "            break\n",
+    "        if open_seats >= next_parties[i]:\n",
+    "            open_seats = open_seats - next_parties[i]\n",
+    "\n",
+    "    return open_seats"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "41e101c2-7f30-4f9f-972b-f2658642f23d",
+   "metadata": {},
+   "source": [
+    "To demonstrate how the above function works, I create an alternative version that takes a list as an argument instead of generating this list within the function. The function returns the number of open seats remaining as did the orginal function."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "id": "441e4efb-48f0-4577-a5c4-26fc60d04e8b",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def fill_ride_test(next_parties_list):\n",
+    "    open_seats = ride_capacity\n",
+    "    next_parties = next_parties_list\n",
+    "    \n",
+    "    for i in range(policy):\n",
+    "        if open_seats == 0:\n",
+    "            break\n",
+    "        if open_seats >= next_parties[i]:\n",
+    "            open_seats = open_seats - next_parties[i]\n",
+    "\n",
+    "    return open_seats"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "7ff268e5-1230-4948-a277-fc09c19ae867",
+   "metadata": {},
+   "source": [
+    "Observe that in the following example, the first party takes up four seats. The rest of the parties are all larger than two and thus cannot be fit into the remaining two seats. Thus, the function returns the value 2 since there are two seats that will be filled by guests in the single rider line."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 13,
+   "id": "5700395d-edaa-4cfc-8218-31920a59210e",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "2"
+      ]
+     },
+     "execution_count": 13,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "fill_ride_test([4, 4, 3, 3, 3])"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "e8e7cc92-7cc7-4b93-918e-f713762761c5",
+   "metadata": {},
+   "source": [
+    "Observe that in the following example, there are zero open seats remaining since the first party takes up two seats and the remaining four seats are filled by the next party. The function returns zero since there will be zero guests from the single rider line used to fill the log."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "id": "102d3033-63b4-41c8-b39c-716ad497bee0",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "0"
+      ]
+     },
+     "execution_count": 15,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "fill_ride_test([2, 4, 3, 5, 3])"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "f435a365-9dba-49a4-9dc3-3d22dbccd118",
+   "metadata": {},
+   "source": [
+    "Below are some other possible scenarios and the corresponding number of open seats remaining:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 17,
+   "id": "86bc4ee7-5e0c-4623-9dfc-c18e546fd4a2",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "1"
+      ]
+     },
+     "execution_count": 17,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "fill_ride_test([2, 3, 3, 5, 2])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 18,
+   "id": "c764ee2c-3310-4b45-95ea-0be51daebb8e",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "0"
+      ]
+     },
+     "execution_count": 18,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "fill_ride_test([4, 3, 3, 5, 2])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 19,
+   "id": "483ed1f7-55a5-4b5c-9445-edf30a763575",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "3"
+      ]
+     },
+     "execution_count": 19,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "fill_ride_test([3, 4, 6, 5, 4])"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "051a105a-2692-4655-9556-2c5789786fae",
+   "metadata": {},
+   "source": [
+    "## Simulation\n",
+    "\n",
+    "An instance of the fill_ride() function being called represents one attempt to fill a single log by using the next 5 parties in line and resorting to the single rider queue whenever there are open seats remaining. In some cases, there may be one or several open seats left to be filled by guests from the single rider queue. In other cases, there will be zero.\n",
+    "\n",
+    "To determine the expected number of guests from the single rider queue that will be used on each log, I run the function one million times and compute the average. Under the current data inputs, there are approximately 0.609073 guests from the single rider queue used on each log.\n",
+    "\n",
+    "Using this number and an estimate on the number of logs dispatched per minute, I can estimate the wait time for the single rider line for any given single rider queue length (number of guests in the single rider queue)."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 21,
+   "id": "e4b3f41d-aa9d-4c13-97cc-92b245ff9082",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "0.608873"
+      ]
+     },
+     "execution_count": 21,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "num_trials = 1000000\n",
+    "total_single_riders = sum(fill_ride() for i in range(num_trials))\n",
+    "\n",
+    "average = total_single_riders / num_trials\n",
+    "average\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "73f2f82d-ef00-407f-865a-1660921bb577",
+   "metadata": {},
+   "source": [
+    "## Convergence Test\n",
+    "\n",
+    "I run the simulation 5 times to show that there is minimal variation (less than 0.01) in the result between simulations. I use the average result of these 5 simulations when computing the throughput (processing rate) of the single rider line."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 23,
+   "id": "6c625da8-dcfc-40a8-8315-c7ba5d2dae59",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>Test #</th>\n",
+       "      <th>Average</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0.607643</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>2</td>\n",
+       "      <td>0.608597</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>3</td>\n",
+       "      <td>0.609571</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>4</td>\n",
+       "      <td>0.609154</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>5</td>\n",
+       "      <td>0.608623</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "   Test #   Average\n",
+       "0       1  0.607643\n",
+       "1       2  0.608597\n",
+       "2       3  0.609571\n",
+       "3       4  0.609154\n",
+       "4       5  0.608623"
+      ]
+     },
+     "execution_count": 23,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "def simulation(num_tests, num_trials):\n",
+    "    k = num_tests\n",
+    "    n = num_trials\n",
+    "\n",
+    "    tests = list(range(1, k + 1))\n",
+    "    averages = []\n",
+    "    \n",
+    "    for _ in tests:\n",
+    "        total_single_riders = sum(fill_ride() for i in range(n))\n",
+    "        average = total_single_riders / num_trials\n",
+    "        averages.append(average)\n",
+    "\n",
+    "    df = pd.DataFrame({ \"Test #\": tests, \"Average\": averages })\n",
+    "    \n",
+    "    return df\n",
+    "    \n",
+    "result = simulation(5, 1000000)\n",
+    "result"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 24,
+   "id": "a282d497-ea42-4e50-b527-f5a70a61b71e",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "0.6087176000000001"
+      ]
+     },
+     "execution_count": 24,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "x = sum(result['Average']) / len(result['Average'])\n",
+    "x"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 46,
+   "id": "306998f2-3158-42e4-83ef-bf5cd0902c9c",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "The single rider line processes an estimated 1.2174 guests per minute.\n"
+     ]
+    }
+   ],
+   "source": [
+    "rides_per_min = 2\n",
+    "\n",
+    "# Single Rider Line Throughput (measured in single riders per minute)\n",
+    "sr_throughput = x * rides_per_min\n",
+    "print(\"The single rider line processes an estimated\", round(sr_throughput,4) , \"guests per minute.\")\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "3f978bb4-4e6c-4eb5-883e-b52902ea7ba3",
+   "metadata": {},
+   "source": [
+    "## Final Result\n",
+    "\n",
+    "Upon computing the throughput rate of the single rider line, I can determine the expected wait time by dividing the queue length by the throughput rate. Below is a table depicting the expected wait time for various queue lengths."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 48,
+   "id": "2221edb5-e395-43b4-85c8-518d44e9f0b0",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>Queue Length</th>\n",
+       "      <th>Wait Time (Minutes)</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>10</td>\n",
+       "      <td>8.213990</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>20</td>\n",
+       "      <td>16.427979</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>30</td>\n",
+       "      <td>24.641969</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>40</td>\n",
+       "      <td>32.855958</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>50</td>\n",
+       "      <td>41.069948</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>5</th>\n",
+       "      <td>60</td>\n",
+       "      <td>49.283937</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>6</th>\n",
+       "      <td>70</td>\n",
+       "      <td>57.497927</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>7</th>\n",
+       "      <td>80</td>\n",
+       "      <td>65.711916</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>8</th>\n",
+       "      <td>90</td>\n",
+       "      <td>73.925906</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>9</th>\n",
+       "      <td>100</td>\n",
+       "      <td>82.139895</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "   Queue Length  Wait Time (Minutes)\n",
+       "0            10             8.213990\n",
+       "1            20            16.427979\n",
+       "2            30            24.641969\n",
+       "3            40            32.855958\n",
+       "4            50            41.069948\n",
+       "5            60            49.283937\n",
+       "6            70            57.497927\n",
+       "7            80            65.711916\n",
+       "8            90            73.925906\n",
+       "9           100            82.139895"
+      ]
+     },
+     "execution_count": 48,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "intervals = np.array([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])\n",
+    "wait_times = intervals / sr_throughput \n",
+    "\n",
+    "df = pd.DataFrame({ \"Queue Length\": intervals, \"Wait Time (Minutes)\": wait_times })\n",
+    "df\n",
+    "\n"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.12.3"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
